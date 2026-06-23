@@ -1,0 +1,6 @@
+{
+  "name": "ENSH",
+  "description": "Red social para interactuar con tus compañeros de colegio. Cuenta con perfiles creados por los usuarios, feed tipo TikTok/Instagram de publicaciones, historias y chats privados con respuesta inteligente integrada.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
