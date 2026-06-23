@@ -60,6 +60,35 @@ val TextPrimary = Color(0xFFF3F4F6)
 val TextSecondary = Color(0xFF9CA3AF)
 
 @Composable
+fun AvatarImage(
+    model: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    if (model.isNullOrBlank() || model == "default_blank") {
+        Box(
+            modifier = modifier.background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = contentDescription,
+                tint = Color.Black,
+                modifier = Modifier.fillMaxSize(0.6f)
+            )
+        }
+    } else {
+        AsyncImage(
+            model = model,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = contentScale
+        )
+    }
+}
+
+@Composable
 fun PromoMainScreen(viewModel: PromoViewModel) {
     val currentTab by viewModel.currentTab.collectAsState()
     val classmates by viewModel.classmates.collectAsState()
@@ -360,8 +389,8 @@ fun StoriesRow(
                             )
                             .padding(4.dp)
                     ) {
-                        AsyncImage(
-                            model = "https://picsum.photos/id/1005/200/200",
+                        AvatarImage(
+                            model = viewModel.currentUserId.value.let { id -> classmates.find { it.id == id }?.avatarUrl } ?: "default_blank",
                             contentDescription = "My Story Avatar",
                             modifier = Modifier
                                 .fillMaxSize()
@@ -415,7 +444,7 @@ fun StoriesRow(
                         )
                         .padding(4.dp)
                 ) {
-                    AsyncImage(
+                    AvatarImage(
                         model = story.authorAvatar,
                         contentDescription = story.authorName,
                         modifier = Modifier
@@ -477,7 +506,7 @@ fun PostItemCard(
                     }
                 ) {
                     Box {
-                        AsyncImage(
+                        AvatarImage(
                             model = post.authorAvatar,
                             contentDescription = post.authorName,
                             modifier = Modifier
@@ -502,7 +531,7 @@ fun PostItemCard(
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
-                            if (post.classmateId == 0) {
+                            if (post.classmateId == viewModel.currentUserId.value) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = NeonCyan.copy(alpha = 0.2f)),
@@ -542,7 +571,8 @@ fun PostItemCard(
                     .height(300.dp)
                     .combinedClickable(
                         onDoubleClick = {
-                            if (!post.isLiked) {
+                            val currentUserId = viewModel.currentUserId.value
+                            if (!post.likedBy.contains(currentUserId)) {
                                 viewModel.toggleLike(post)
                             }
                             isDoubleTapHeartVisible = true
@@ -662,11 +692,13 @@ fun PostItemCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val currentUserId = viewModel.currentUserId.value
+                    val isLikedByMe = post.likedBy.contains(currentUserId)
                     IconButton(onClick = { viewModel.toggleLike(post) }) {
                         Icon(
-                            imageVector = if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            imageVector = if (isLikedByMe) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Like",
-                            tint = if (post.isLiked) NeonPink else TextPrimary,
+                            tint = if (isLikedByMe) NeonPink else TextPrimary,
                             modifier = Modifier.size(26.dp)
                         )
                     }
@@ -877,7 +909,7 @@ fun StoryViewerDialog(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(
+                            AvatarImage(
                                 model = story.authorAvatar,
                                 contentDescription = story.authorName,
                                 modifier = Modifier
@@ -945,7 +977,7 @@ fun ChatsBoardScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filteredClassmates = classmates.filter {
-        it.id != 0 && (it.name.contains(searchQuery, ignoreCase = true) || it.nickname.contains(searchQuery, ignoreCase = true))
+        it.id != viewModel.currentUserId.value && (it.name.contains(searchQuery, ignoreCase = true) || it.nickname.contains(searchQuery, ignoreCase = true))
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1026,7 +1058,7 @@ fun ClassmateChatRow(
                     .clickable { onProfileClick() }
             ) {
                 Box {
-                    AsyncImage(
+                    AvatarImage(
                         model = buddy.avatarUrl,
                         contentDescription = buddy.name,
                         modifier = Modifier
@@ -1129,7 +1161,7 @@ fun PrivateChatScreen(
             }
 
             Box(modifier = Modifier.clickable { viewModel.viewClassmateProfile(buddy.id) }) {
-                AsyncImage(
+                AvatarImage(
                     model = buddy.avatarUrl,
                     contentDescription = buddy.name,
                     modifier = Modifier
@@ -1387,6 +1419,30 @@ fun AddPublishScreen(viewModel: PromoViewModel) {
     var imageUrl by remember { mutableStateOf("") }
     var isVideo by remember { mutableStateOf(false) }
     var uploadType by remember { mutableStateOf("POST") } // POST or STORY
+    
+    val context = LocalContext.current
+    
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            imageUrl = uri.toString()
+        }
+    }
+    
+    var tempCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempCameraUri != null) {
+            imageUrl = tempCameraUri.toString()
+        }
+    }
+    
+    fun createTempImageUri(): android.net.Uri {
+        val file = java.io.File(context.cacheDir, "temp_camera_photo_${System.currentTimeMillis()}.jpg")
+        return androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -1501,6 +1557,40 @@ fun AddPublishScreen(viewModel: PromoViewModel) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            // Image input options
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val uri = createTempImageUri()
+                        tempCameraUri = uri
+                        cameraLauncher.launch(uri)
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = CosmicSurfaceLighter),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = "Cámara", tint = NeonCyan, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Cámara", color = TextPrimary, fontSize = 12.sp)
+                }
+                
+                Button(
+                    onClick = {
+                        galleryLauncher.launch("image/*")
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = CosmicSurfaceLighter),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Galería", tint = NeonPink, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Galería", color = TextPrimary, fontSize = 12.sp)
+                }
+            }
+
             // Image URL Field input
             OutlinedTextField(
                 value = imageUrl,
@@ -1508,8 +1598,8 @@ fun AddPublishScreen(viewModel: PromoViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("upload_image_url"),
-                label = { Text("Enlace de Foto/Video (Opcional)", color = TextSecondary) },
-                placeholder = { Text("Pega un enlace de Unsplash o déjalo en blanco para aleatorio", color = TextSecondary) },
+                label = { Text("Enlace o ruta de la imagen (Opcional)", color = TextSecondary) },
+                placeholder = { Text("Se llenará automáticamente o puedes pegar URL", color = TextSecondary) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary,
@@ -1631,6 +1721,45 @@ fun MyProfileScreen(
     var showRegisterDialog by remember { mutableStateOf(false) }
     val classmates by viewModel.classmates.collectAsState()
     val stories by viewModel.stories.collectAsState()
+    
+    var editName by remember { mutableStateOf(me?.name ?: "") }
+    var editNickname by remember { mutableStateOf(me?.nickname ?: "") }
+    var editBio by remember { mutableStateOf(me?.bio ?: "") }
+    var editAvatar by remember { mutableStateOf(me?.avatarUrl ?: "") }
+    
+    // Refresh state when "me" changes
+    LaunchedEffect(me) {
+        if (!showEditDialog) {
+            editName = me?.name ?: ""
+            editNickname = me?.nickname ?: ""
+            editBio = me?.bio ?: ""
+            editAvatar = me?.avatarUrl ?: ""
+        }
+    }
+
+    val context = LocalContext.current
+    
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            editAvatar = uri.toString()
+        }
+    }
+    
+    var tempCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempCameraUri != null) {
+            editAvatar = tempCameraUri.toString()
+        }
+    }
+    
+    fun createTempImageUri(): android.net.Uri {
+        val file = java.io.File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.jpg")
+        return androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    }
 
     Column(
         modifier = Modifier
@@ -1676,8 +1805,8 @@ fun MyProfileScreen(
                     .border(3.dp, CosmicBackground, CircleShape)
                     .shadow(elevation = 10.dp, shape = CircleShape)
             ) {
-                AsyncImage(
-                    model = me?.avatarUrl ?: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500",
+                AvatarImage(
+                    model = me?.avatarUrl ?: "default_blank",
                     contentDescription = "My Avatar",
                     modifier = Modifier
                         .fillMaxSize()
@@ -1746,6 +1875,15 @@ fun MyProfileScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                Button(
+                    onClick = { viewModel.logout() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                ) {
+                    Text("Cerrar Sesión", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // Beautiful accounts panel inside Profile Screen
                 Card(
                     modifier = Modifier
@@ -1808,7 +1946,7 @@ fun MyProfileScreen(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        AsyncImage(
+                                        AvatarImage(
                                             model = classmate.avatarUrl,
                                             contentDescription = null,
                                             modifier = Modifier
@@ -1921,11 +2059,6 @@ fun MyProfileScreen(
 
     // Edit Profile details dialog
     if (showEditDialog) {
-        var editName by remember { mutableStateOf(me?.name ?: "") }
-        var editNickname by remember { mutableStateOf(me?.nickname ?: "") }
-        var editBio by remember { mutableStateOf(me?.bio ?: "") }
-        var editAvatar by remember { mutableStateOf(me?.avatarUrl ?: "") }
-
         Dialog(onDismissRequest = { showEditDialog = false }) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CosmicSurface),
@@ -1972,12 +2105,48 @@ fun MyProfileScreen(
                         colors = transparentFieldColors(),
                         maxLines = 3
                     )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Image input options
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val uri = createTempImageUri()
+                                tempCameraUri = uri
+                                cameraLauncher.launch(uri)
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CosmicSurfaceLighter),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = "Cámara", tint = NeonCyan, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Cámara", color = TextPrimary, fontSize = 12.sp)
+                        }
+                        
+                        Button(
+                            onClick = {
+                                galleryLauncher.launch("image/*")
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CosmicSurfaceLighter),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = "Galería", tint = NeonPink, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Galería", color = TextPrimary, fontSize = 12.sp)
+                        }
+                    }
 
                     OutlinedTextField(
                         value = editAvatar,
                         onValueChange = { editAvatar = it },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        label = { Text("Avatar URL (Unsplash/Picsum)") },
+                        label = { Text("Enlace o ruta del Avatar") },
                         colors = transparentFieldColors()
                     )
 
@@ -2167,7 +2336,7 @@ fun ClassmateProfileDialog(
             ) {
                 // Large Avatar Circle
                 Box {
-                    AsyncImage(
+                    AvatarImage(
                         model = classmate.avatarUrl,
                         contentDescription = classmate.name,
                         modifier = Modifier

@@ -16,6 +16,9 @@ interface ClassmateDao {
     suspend fun getClassmateById(id: Int): Classmate?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertClassmate(classmate: Classmate): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertClassmates(classmates: List<Classmate>)
 
     @Update

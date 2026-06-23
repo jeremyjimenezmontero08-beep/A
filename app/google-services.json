@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "248283061593",
+    "project_id": "ensh-fb35f",
+    "storage_bucket": "ensh-fb35f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:248283061593:android:19088c13c8da8434c1c048",
+        "android_client_info": {
+          "package_name": "com.aistudio.promotrentaysiete.vwyzwx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiv5Xh8XBAP5borTbipvMtuXpXM2zLx_c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

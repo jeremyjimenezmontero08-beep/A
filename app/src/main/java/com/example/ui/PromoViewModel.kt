@@ -8,6 +8,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PromoViewModel(application: Application) : AndroidViewModel(application) {
@@ -18,17 +19,21 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentTab = MutableStateFlow(Tab.FEED)
     val currentTab: StateFlow<Tab> = _currentTab.asStateFlow()
 
-    // Current active logged in user ID (Default is 0: Jeremy)
-    private val _currentUserId = MutableStateFlow(0)
-    val currentUserId: StateFlow<Int> = _currentUserId.asStateFlow()
+    // Current active logged in user ID ("" means not logged in)
+    private val _currentUserId = MutableStateFlow("")
+    val currentUserId: StateFlow<String> = _currentUserId.asStateFlow()
+
+    // Are we showing login screen?
+    private val _isUserLoggedIn = MutableStateFlow(false)
+    val isUserLoggedIn: StateFlow<Boolean> = _isUserLoggedIn.asStateFlow()
 
     // Selected classmate for Private Chat
-    private val _selectedClassmateId = MutableStateFlow<Int?>(null)
-    val selectedClassmateId: StateFlow<Int?> = _selectedClassmateId.asStateFlow()
+    private val _selectedClassmateId = MutableStateFlow<String?>(null)
+    val selectedClassmateId: StateFlow<String?> = _selectedClassmateId.asStateFlow()
 
     // Selected classmate for Profile view popup
-    private val _viewedClassmateId = MutableStateFlow<Int?>(null)
-    val viewedClassmateId: StateFlow<Int?> = _viewedClassmateId.asStateFlow()
+    private val _viewedClassmateId = MutableStateFlow<String?>(null)
+    val viewedClassmateId: StateFlow<String?> = _viewedClassmateId.asStateFlow()
 
     // Selected story to view fullscreen
     private val _activeStory = MutableStateFlow<Story?>(null)
@@ -60,34 +65,34 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            // One-time self-healing check: if old Sofía Martínez classmate exists from prior seeds, wipe database to start clean
-            val oldSofia = db.classmateDao().getClassmateById(1)
-            if (oldSofia != null && oldSofia.name == "Sofía Martínez") {
-                db.classmateDao().deleteOtherClassmates()
-                db.postDao().deleteAllPosts()
-                db.storyDao().deleteAllStories()
-                db.chatMessageDao().deleteAllChatMessages()
-            }
-
-            // First build baseline databases (Jeremy)
             repository.initializeDatabaseIfEmpty()
-            
-            // Validate classmate 0 creation for local user representation
-            val hasUser = db.classmateDao().getClassmateById(0)
-            if (hasUser == null) {
-                db.classmateDao().insertClassmates(listOf(
-                    Classmate(
-                        id = 0,
-                        name = "Jeremy Jiménez",
-                        nickname = "Jeremy",
-                        avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500",
-                        bio = "Programador de ENSH 💻💥. ¡Un saludo!",
-                        personality = "Creativo, chistoso y gran dador de consejos tecnológicos",
-                        hobby = "Programación"
-                    )
-                ))
-            }
         }
+    }
+
+    fun setCurrentUser(userId: String) {
+        _currentUserId.value = userId
+        _isUserLoggedIn.value = userId.isNotBlank()
+    }
+
+    fun registerNewUser(name: String, nickname: String, bio: String) {
+        viewModelScope.launch {
+            val freshId = repository.insertClassmate(
+                Classmate(
+                    name = name,
+                    nickname = nickname,
+                    avatarUrl = "default_blank",
+                    bio = bio,
+                    personality = "Soy nuevo por aquí",
+                    hobby = "Descubrir"
+                )
+            )
+            setCurrentUser(freshId)
+        }
+    }
+
+    fun logout() {
+        _currentUserId.value = ""
+        _isUserLoggedIn.value = false
     }
 
     fun changeTab(tab: Tab) {
@@ -97,14 +102,14 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun selectChat(classmateId: Int?) {
+    fun selectChat(classmateId: String?) {
         _selectedClassmateId.value = classmateId
         if (classmateId != null) {
             _currentTab.value = Tab.CHATS
         }
     }
 
-    fun viewClassmateProfile(classmateId: Int?) {
+    fun viewClassmateProfile(classmateId: String?) {
         _viewedClassmateId.value = classmateId
     }
 
@@ -113,9 +118,20 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleLike(post: Post) = viewModelScope.launch {
+        val currentUserId = _currentUserId.value
+        if (currentUserId.isBlank()) return@launch
+
+        val isCurrentlyLiked = post.likedBy.contains(currentUserId)
+        
+        val newLikedBy = if (isCurrentlyLiked) {
+            post.likedBy - currentUserId
+        } else {
+            post.likedBy + currentUserId
+        }
+        
         val updatedPost = post.copy(
-            isLiked = !post.isLiked,
-            likesCount = if (post.isLiked) post.likesCount - 1 else post.likesCount + 1
+            likedBy = newLikedBy,
+            likesCount = newLikedBy.size
         )
         repository.updatePost(updatedPost)
     }
@@ -152,7 +168,7 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun uploadPost(caption: String, imageUrl: String, isVideo: Boolean) = viewModelScope.launch {
-        val me = classmates.value.find { it.id == _currentUserId.value } ?: Classmate(0, "Jeremy Jiménez", "Jeremy", "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500", "Admin", "Admin", "Admin")
+        val me = classmates.value.find { it.id == _currentUserId.value } ?: Classmate(name = "Jeremy Jiménez", nickname = "Jeremy", avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500")
         val photoUrl = if (imageUrl.isBlank()) {
             val randomId = (10..400).random()
             "https://picsum.photos/id/$randomId/800/800"
@@ -173,7 +189,7 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun uploadStory(imageUrl: String, isVideo: Boolean) = viewModelScope.launch {
-        val me = classmates.value.find { it.id == _currentUserId.value } ?: Classmate(0, "Jeremy Jiménez", "Jeremy", "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500", "Admin", "Admin", "Admin")
+        val me = classmates.value.find { it.id == _currentUserId.value } ?: Classmate(name = "Jeremy Jiménez", nickname = "Jeremy", avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500")
         val storyUrl = if (imageUrl.isBlank()) {
             val randomId = (10..400).random()
             "https://picsum.photos/id/$randomId/600/1000"
@@ -209,13 +225,10 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
         personality: String,
         hobby: String
     ) = viewModelScope.launch {
-        val list = classmates.value
-        val nextId = (list.map { it.id }.maxOrNull() ?: 0) + 1
         val finalAvatar = avatar.ifBlank {
-            "https://picsum.photos/id/${(20..250).random()}/200/200"
+            "default_blank"
         }
         val classmate = Classmate(
-            id = nextId,
             name = name,
             nickname = nickname,
             avatarUrl = finalAvatar,
@@ -223,10 +236,10 @@ class PromoViewModel(application: Application) : AndroidViewModel(application) {
             personality = personality.ifBlank { "Amable, alegre y conversador" },
             hobby = hobby.ifBlank { "Socializar" }
         )
-        db.classmateDao().insertClassmates(listOf(classmate))
+        repository.insertClassmate(classmate)
     }
 
-    fun switchActiveUser(userId: Int) {
+    fun switchActiveUser(userId: String) {
         _currentUserId.value = userId
         _selectedClassmateId.value = null
         _viewedClassmateId.value = null

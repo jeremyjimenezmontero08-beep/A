@@ -5,11 +5,14 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
+import androidx.room.TypeConverters
+
 @Database(
     entities = [Classmate::class, Post::class, Story::class, ChatMessage::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class PromoDatabase : RoomDatabase() {
     abstract fun classmateDao(): ClassmateDao
     abstract fun postDao(): PostDao
